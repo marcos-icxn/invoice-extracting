@@ -47,35 +47,70 @@ def extract_invoice_data(image_path):
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
     prompt = """Extrae los datos de esta factura argentina en formato JSON.
-      IMPORTANTE: 
-      - Solo extrae datos que puedas leer con certeza
-      - Si algo no es legible, usa null
-      - CUIT en formato: XX-XXXXXXXX-X
-      - Fechas en formato: DD/MM/AAAA
-      - Montos sin símbolo $, solo números
+IMPORTANTE: 
+  - Solo extrae datos que puedas leer con certeza
+  - Si algo no es legible, usa null
+  - CUIT en formato: XX-XXXXXXXX-X
+  - Fechas en formato: DD/MM/AAAA
+  - Montos sin símbolo $, solo números
 
-      Formato JSON:
+  Formato JSON:
+  {
+    "tipo_comprobante": "Factura A/B/C",
+    "punto_venta": "",
+    "numero": "",
+    "fecha": "",
+    "proveedor": {
+      "nombre": "",
+      "cuit": "",
+      "direccion": ""
+    },
+    "items": [
       {
-        "tipo_comprobante": "Factura A/B/C",
-        "punto_venta": "",
-        "numero": "",
-        "fecha": "",
-        "proveedor": {
-          "nombre": "",
-          "cuit": "",
-          "direccion": ""
-        },
-        "items": [
-          {
-            "descripcion": "",
-            "cantidad": 0,
-            "precio_unitario": 0,
-            "subtotal": 0
-          }
+        "descripcion": "",
+        "cantidad": 0,
+        "precio_unitario": 0,
+        "subtotal": 0
+      }
+    ],
+  "subtotal": 0,
+  "iva": 0,
+  "total": 0,
+  "cae": "",
+  "observaciones": ""
+}"""
+    
+    response  = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+          "role": "user",
+          "content": [
+            {"type": "image_url",
+             "image_url":{
+               "url": f"data:image/jpeg;base64,{base64_image}"
+               "detail": "high"
+             }
+            }
+          ]
         ],
-        "subtotal": 0,
-        "iva": 0,
-        "total": 0,
-        "cae": "",
-        "observaciones": ""
-      }"""
+        response_format={"type": "json-object"},
+        temperature=0
+        max_tokens=1500
+    )
+    
+    json_data = response.choices[0].message.content
+    data = json.loads(json_data)
+    
+    print(f" -> Datos extraídos correctamente...")
+    
+    return data
+  
+def data_validate(data)
+  errors = []
+  warnings = []
+  
+  if not data.get("numero"):
+    errors.append("Número de factura no encontrado.")
+    
+  if not data.get("proveedor", {}).get("cuit"):
+    errors.append("CUIT del proveedor no encontrado.")
