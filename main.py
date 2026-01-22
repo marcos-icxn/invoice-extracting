@@ -121,27 +121,25 @@ Formato requerido:
 IMPORTANTE: Responde únicamente con el JSON solicitado. Solo extrae datos que puedas leer claramente. Si algo no es legible, usa null. No expliques ni justifiques. No infieras valores."""
 
     # Llamada correcta a la API de OpenAI con structured outputs
-    response = client.responses.create(
+    response = client.responses.parse(
         model="gpt-5-mini",
-        messages=[
+        input=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
+                    {"type": "input_text", "text": prompt},
                     {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        },
-                    },
-                ],
+                        "type": "input_image",
+                        "image_url": f"data:image/jpeg;base64,{base64_image}"
+                    }
+                ]
             }
         ],
-        response_format=FacturaData,
-        max_tokens=4000,
+        text_format=FacturaData,
+        max_output_tokens=4000,
     )
 
-    datos = response.choices[0].message.parsed
+    datos = response.output_parsed
     print(f"  → ✓ Datos extraídos y validados")
 
     return datos

@@ -1,0 +1,68 @@
+{
+  "archivo_original": "photo_2025-10-15_12-27-02.jpg",
+  "status": "ok",
+  "errores": [],
+  "advertencias": [],
+  "datos": {
+    "proveedor": {
+      "nombre": "Carlos Isla y Cia S.A.",
+      "cuit": "30-52904057-6",
+      "direccion": "San Juan 198, General Roca, Rio Negro"
+    },
+    "tipo_comprobante": "Factura A",
+    "punto_venta": "00045",
+    "numero": "00134253",
+    "fecha": "11/10/2025",
+    "items": [
+      {
+        "codigo": "009435/F",
+        "descripcion": "CHAPA CAN.GALV.25 x 1.086 x 4.00 Mts",
+        "cantidad": 36.0,
+        "precio_unitario": 58638.44,
+        "subtotal": 2110983.84
+      },
+      {
+        "codigo": "009435/G",
+        "descripcion": "CHAPA CAN.GALV.25 x 1.086 x 4.50 Mts",
+        "cantidad": 10.0,
+        "precio_unitario": 65965.29,
+        "subtotal": 659652.9
+      },
+      {
+        "codigo": "009435/H",
+        "descripcion": "CHAPA CAN.GALV.25 x 1.086 x 5.00 Mts",
+        "cantidad": 9.0,
+        "precio_unitario": 73315.77,
+        "subtotal": 659841.93
+      },
+      {
+        "codigo": "009435/T",
+        "descripcion": "CHAPA CAN.GALV.25 x 1.086 x 13.00 Mts",
+        "cantidad": 13.0,
+        "precio_unitario": 190592.64,
+        "subtotal": 2477704.32
+      },
+      {
+        "codigo": "FLETETN2",
+        "descripcion": "GASTO DE ENVIO X TONELADA LARGA DISTANCIA",
+        "cantidad": 1.0,
+        "precio_unitario": 49586.78,
+        "subtotal": 49586.78
+      },
+      {
+        "codigo": "009730/V",
+        "descripcion": "CHAPA TRASL POLIPROPILENO CAN x 6.00 Mts",
+        "cantidad": 3.0,
+        "precio_unitario": 87863.66,
+        "subtotal": 263590.98
+      }
+    ],
+    "subtotal": 6221360.75,
+    "iva": 1306485.76,
+    "percepcion": 62213.61,
+    "retencion": 0.0,
+    "total": 7590060.12,
+    "cae": "75416507350811",
+    "observaciones": "PN - PRECIOS NETOS"
+  }
+}
