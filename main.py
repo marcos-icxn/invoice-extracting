@@ -10,6 +10,8 @@ import tempfile
 from dotenv import load_dotenv
 import os
 
+from services.notifier import enviar_factura
+
 try:
     from pdf2image import convert_from_path
     PDF_SUPPORT = True
@@ -235,6 +237,11 @@ def procesar_factura(ruta_factura, carpeta_salida, nombre_override=None):
             json.dump(resultado, f, indent=2, ensure_ascii=False)
 
         print(f"\n  💾 Guardado en: {ruta_salida}")
+
+        if resultado["status"] != "error":
+            print(f"  → Enviando datos al endpoint...")
+            if enviar_factura(resultado):
+                print(f"  ✓ Datos enviados correctamente")
 
         return resultado
 
