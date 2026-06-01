@@ -4,6 +4,7 @@ from typing import List, Optional
 from PIL import Image, ImageEnhance
 import base64
 import json
+import tempfile
 from dotenv import load_dotenv
 import os
 
@@ -61,7 +62,8 @@ def optimizar_imagen(ruta_entrada):
     enhancer = ImageEnhance.Contrast(img_gray)
     img_enhanced = enhancer.enhance(1.5)
 
-    ruta_temp = "temp_optimizada.jpg"
+    fd, ruta_temp = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
     img_enhanced.save(ruta_temp, 'JPEG', quality=85, optimize=True)
 
     return ruta_temp
@@ -122,7 +124,7 @@ IMPORTANTE: Responde únicamente con el JSON solicitado. Solo extrae datos que p
 
     # Llamada correcta a la API de OpenAI con structured outputs
     response = client.responses.parse(
-        model="gpt-5-mini",
+        model="gpt-5.4-nano",
         input=[
             {
                 "role": "user",
@@ -156,7 +158,7 @@ def validar_datos(datos):
     if not datos.proveedor.cuit:
         errores.append("❌ Falta CUIT del proveedor")
 
-    if not datos.total:
+    if datos.total is None:
         errores.append("❌ Falta total")
 
     # Validar cálculos
@@ -178,6 +180,7 @@ def procesar_factura(ruta_factura):
     print(f"\n📄 Procesando: {nombre}")
     print("=" * 70)
 
+    ruta_opt = None
     try:
         # 1. Optimizar imagen
         ruta_opt = optimizar_imagen(ruta_factura)
@@ -194,7 +197,7 @@ def procesar_factura(ruta_factura):
             "status": "error" if errores else ("warning" if advertencias else "ok"),
             "errores": errores,
             "advertencias": advertencias,
-            "datos": datos.model_dump(),  # Convertir Pydantic a dict
+            "datos": datos.model_dump(),
         }
 
         # 5. Mostrar resumen
@@ -216,10 +219,6 @@ def procesar_factura(ruta_factura):
 
         print(f"\n  💾 Guardado en: {ruta_salida}")
 
-        # Limpiar temporal
-        if os.path.exists("temp_optimizada.jpg"):
-            os.remove("temp_optimizada.jpg")
-
         return resultado
 
     except Exception as e:
@@ -230,6 +229,10 @@ def procesar_factura(ruta_factura):
             "errores": [str(e)],
             "datos": None,
         }
+
+    finally:
+        if ruta_opt and os.path.exists(ruta_opt):
+            os.remove(ruta_opt)
 
 
 def main():
