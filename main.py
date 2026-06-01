@@ -2,11 +2,19 @@ from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
 from PIL import Image, ImageEnhance
+import argparse
 import base64
 import json
+import re
 import tempfile
 from dotenv import load_dotenv
 import os
+
+try:
+    from pdf2image import convert_from_path
+    PDF_SUPPORT = True
+except ImportError:
+    PDF_SUPPORT = False
 
 load_dotenv()
 
@@ -15,8 +23,11 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     raise RuntimeError("OPENAI_API_KEY no definido")
 
-CARPETA_ENTRADA = "facturas"
-CARPETA_SALIDA = "resultados"
+DEFAULT_ENTRADA = "facturas"
+DEFAULT_SALIDA = "resultados"
+
+_CUIT_RE = re.compile(r'^\d{2}-\d{8}-\d$')
+
 
 class Item(BaseModel):
     codigo: Optional[str] = None
@@ -47,20 +58,22 @@ class FacturaData(BaseModel):
     cae: Optional[str] = None
     observaciones: Optional[str] = None
 
+
 def optimizar_imagen(ruta_entrada):
     print(f"  → Optimizando imagen...")
 
     img = Image.open(ruta_entrada)
-    img_gray = img.convert('L')
+    if img.mode not in ('RGB', 'L'):
+        img = img.convert('RGB')
 
     max_dimension = 1500
-    ratio = max_dimension / max(img_gray.size)
+    ratio = max_dimension / max(img.size)
     if ratio < 1:
-        new_size = tuple(int(dim * ratio) for dim in img_gray.size)
-        img_gray = img_gray.resize(new_size, Image.Resampling.LANCZOS)
+        new_size = tuple(int(dim * ratio) for dim in img.size)
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-    enhancer = ImageEnhance.Contrast(img_gray)
-    img_enhanced = enhancer.enhance(1.5)
+    enhancer = ImageEnhance.Contrast(img)
+    img_enhanced = enhancer.enhance(1.3)
 
     fd, ruta_temp = tempfile.mkstemp(suffix=".jpg")
     os.close(fd)
@@ -69,17 +82,31 @@ def optimizar_imagen(ruta_entrada):
     return ruta_temp
 
 
+def pdf_a_imagenes(ruta_pdf):
+    if not PDF_SUPPORT:
+        raise RuntimeError(
+            "pdf2image no está instalado. Instalalo con: pip install pdf2image\n"
+            "En Windows también necesitás poppler: https://github.com/oschwartz10612/poppler-windows"
+        )
+    print(f"  → Convirtiendo PDF a imágenes...")
+    paginas = convert_from_path(ruta_pdf, dpi=200)
+    rutas = []
+    for pagina in paginas:
+        fd, ruta = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd)
+        pagina.save(ruta, 'JPEG', quality=90)
+        rutas.append(ruta)
+    return rutas
+
+
 def extraer_datos_factura(ruta_imagen):
-    """Extrae datos de la factura usando OpenAI"""
     print(f"  → Analizando con IA...")
 
     client = OpenAI(api_key=API_KEY)
 
-    # Convertir imagen a base64
     with open(ruta_imagen, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
-    # Prompt para facturas argentinas
     prompt = """Extrae los datos de esta factura argentina en formato JSON.
 
 IMPORTANTE SOBRE NÚMEROS:
@@ -122,7 +149,6 @@ Formato requerido:
 
 IMPORTANTE: Responde únicamente con el JSON solicitado. Solo extrae datos que puedas leer claramente. Si algo no es legible, usa null. No expliques ni justifiques. No infieras valores."""
 
-    # Llamada correcta a la API de OpenAI con structured outputs
     response = client.responses.parse(
         model="gpt-5.4-nano",
         input=[
@@ -148,7 +174,6 @@ IMPORTANTE: Responde únicamente con el JSON solicitado. Solo extrae datos que p
 
 
 def validar_datos(datos):
-    """Valida los datos extraídos"""
     errores = []
     advertencias = []
 
@@ -157,11 +182,12 @@ def validar_datos(datos):
 
     if not datos.proveedor.cuit:
         errores.append("❌ Falta CUIT del proveedor")
+    elif not _CUIT_RE.match(datos.proveedor.cuit):
+        advertencias.append(f"⚠️  CUIT con formato inválido: {datos.proveedor.cuit}")
 
     if datos.total is None:
         errores.append("❌ Falta total")
 
-    # Validar cálculos
     if datos.items:
         subtotal_calculado = sum(item.subtotal for item in datos.items)
         subtotal_declarado = datos.subtotal
@@ -174,24 +200,17 @@ def validar_datos(datos):
     return errores, advertencias
 
 
-def procesar_factura(ruta_factura):
-    """Procesa una factura completa"""
-    nombre = os.path.basename(ruta_factura)
+def procesar_factura(ruta_factura, carpeta_salida, nombre_override=None):
+    nombre = nombre_override or os.path.basename(ruta_factura)
     print(f"\n📄 Procesando: {nombre}")
     print("=" * 70)
 
     ruta_opt = None
     try:
-        # 1. Optimizar imagen
         ruta_opt = optimizar_imagen(ruta_factura)
-
-        # 2. Extraer datos
         datos = extraer_datos_factura(ruta_opt)
-
-        # 3. Validar
         errores, advertencias = validar_datos(datos)
 
-        # 4. Preparar resultado (convertir Pydantic a dict)
         resultado = {
             "archivo_original": nombre,
             "status": "error" if errores else ("warning" if advertencias else "ok"),
@@ -200,7 +219,6 @@ def procesar_factura(ruta_factura):
             "datos": datos.model_dump(),
         }
 
-        # 5. Mostrar resumen
         print(f"\n  Status: {resultado['status'].upper()}")
         if errores:
             for error in errores:
@@ -209,10 +227,9 @@ def procesar_factura(ruta_factura):
             for adv in advertencias:
                 print(f"  {adv}")
 
-        # 6. Guardar resultado
-        os.makedirs(CARPETA_SALIDA, exist_ok=True)
+        os.makedirs(carpeta_salida, exist_ok=True)
         nombre_salida = nombre.rsplit(".", 1)[0] + "_datos.json"
-        ruta_salida = os.path.join(CARPETA_SALIDA, nombre_salida)
+        ruta_salida = os.path.join(carpeta_salida, nombre_salida)
 
         with open(ruta_salida, "w", encoding="utf-8") as f:
             json.dump(resultado, f, indent=2, ensure_ascii=False)
@@ -236,38 +253,67 @@ def procesar_factura(ruta_factura):
 
 
 def main():
-    """Función principal"""
+    parser = argparse.ArgumentParser(description='Extractor de facturas argentinas con IA')
+    parser.add_argument('--entrada', default=DEFAULT_ENTRADA, help='Carpeta con las facturas (default: facturas)')
+    parser.add_argument('--salida', default=DEFAULT_SALIDA, help='Carpeta para los resultados (default: resultados)')
+    args = parser.parse_args()
+
+    carpeta_entrada = args.entrada
+    carpeta_salida = args.salida
+
     print("\n" + "=" * 70)
     print("🤖 EXTRACTOR DE FACTURAS CON IA")
     print("=" * 70)
 
-    # Verificar carpeta
-    if not os.path.exists(CARPETA_ENTRADA):
-        print(f"\n❌ Error: La carpeta '{CARPETA_ENTRADA}' no existe")
-        print(f"Creá la carpeta y poné tus facturas ahí (JPG, PNG)")
+    if not os.path.exists(carpeta_entrada):
+        print(f"\n❌ Error: La carpeta '{carpeta_entrada}' no existe")
+        ext_str = "JPG, PNG, PDF" if PDF_SUPPORT else "JPG, PNG"
+        print(f"Creá la carpeta y poné tus facturas ahí ({ext_str})")
         return
 
-    # Buscar facturas
+    extensiones = (".jpg", ".jpeg", ".png", ".pdf") if PDF_SUPPORT else (".jpg", ".jpeg", ".png")
     archivos = [
-        f
-        for f in os.listdir(CARPETA_ENTRADA)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        f for f in os.listdir(carpeta_entrada)
+        if f.lower().endswith(extensiones)
     ]
 
     if not archivos:
-        print(f"\n⚠️  No se encontraron facturas en '{CARPETA_ENTRADA}'")
+        ext_str = "JPG, PNG, PDF" if PDF_SUPPORT else "JPG, PNG"
+        print(f"\n⚠️  No se encontraron facturas en '{carpeta_entrada}'")
+        print(f"Formatos soportados: {ext_str}")
         return
 
     print(f"\n📁 Encontradas {len(archivos)} factura(s)\n")
 
-    # Procesar cada una
     resultados = []
     for archivo in archivos:
-        ruta = os.path.join(CARPETA_ENTRADA, archivo)
-        resultado = procesar_factura(ruta)
-        resultados.append(resultado)
+        ruta = os.path.join(carpeta_entrada, archivo)
 
-    # Resumen final
+        if archivo.lower().endswith(".pdf"):
+            rutas_img = []
+            try:
+                rutas_img = pdf_a_imagenes(ruta)
+                nombre_base = archivo.rsplit(".", 1)[0]
+                for i, ruta_img in enumerate(rutas_img):
+                    nombre_pagina = f"{nombre_base}_p{i + 1}.jpg" if len(rutas_img) > 1 else f"{nombre_base}.jpg"
+                    resultado = procesar_factura(ruta_img, carpeta_salida, nombre_override=nombre_pagina)
+                    resultados.append(resultado)
+            except Exception as e:
+                print(f"\n  ❌ ERROR al convertir PDF '{archivo}': {e}")
+                resultados.append({
+                    "archivo_original": archivo,
+                    "status": "error",
+                    "errores": [str(e)],
+                    "datos": None,
+                })
+            finally:
+                for ruta_img in rutas_img:
+                    if os.path.exists(ruta_img):
+                        os.remove(ruta_img)
+        else:
+            resultado = procesar_factura(ruta, carpeta_salida)
+            resultados.append(resultado)
+
     print("\n" + "=" * 70)
     print("📊 RESUMEN FINAL")
     print("=" * 70)
@@ -278,7 +324,7 @@ def main():
     print(f"  ✓ Exitosos: {exitosos}")
     print(f"  ⚠ Con advertencias: {con_warnings}")
     print(f"  ❌ Con errores: {con_errores}")
-    print(f"\n  Resultados en: {CARPETA_SALIDA}/")
+    print(f"\n  Resultados en: {carpeta_salida}/")
     print("\n¡Listo!")
 
 
