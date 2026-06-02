@@ -1,3 +1,4 @@
 .env
-facturas
-resultados
+/facturas
+/resultados
+services/__pycache__
