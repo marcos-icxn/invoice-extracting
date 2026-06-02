@@ -88,7 +88,9 @@ def pdf_a_imagenes(ruta_pdf):
     if not PDF_SUPPORT:
         raise RuntimeError(
             "pdf2image no está instalado. Instalalo con: pip install pdf2image\n"
-            "En Windows también necesitás poppler: https://github.com/oschwartz10612/poppler-windows"
+            "También necesitás poppler:\n"
+            "  Linux:   sudo apt install poppler-utils  (o dnf/pacman según tu distro)\n"
+            "  Windows: https://github.com/oschwartz10612/poppler-windows"
         )
     print(f"  → Convirtiendo PDF a imágenes...")
     paginas = convert_from_path(ruta_pdf, dpi=200)
