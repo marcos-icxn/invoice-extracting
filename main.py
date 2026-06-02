@@ -28,37 +28,34 @@ if not API_KEY:
 DEFAULT_ENTRADA = "facturas"
 DEFAULT_SALIDA = "resultados"
 
-_CUIT_RE = re.compile(r'^\d{2}-\d{8}-\d$')
+_CUIT_RE = re.compile(r'^\d{11}$')
 
 
 class Item(BaseModel):
-    codigo: Optional[str] = None
-    descripcion: str
-    cantidad: float
-    precio_unitario: float
-    subtotal: float
-
-
-class Proveedor(BaseModel):
-    nombre: str
-    cuit: str
-    direccion: Optional[str] = None
+    item: int
+    code: Optional[str] = None
+    description: str
+    qty: float
+    price: float
+    percent: Optional[float] = None
+    tax: Optional[float] = None
 
 
 class FacturaData(BaseModel):
-    proveedor: Proveedor
-    tipo_comprobante: str
-    punto_venta: str
-    numero: str
-    fecha: str
-    items: List[Item]
+    cuit: str
+    pos: int
+    number: int
+    letter: str
+    date: str
     subtotal: float
-    iva: Optional[float] = None
-    percepcion: Optional[float] = None
-    retencion: Optional[float] = None
+    vat: Optional[float] = None
+    perception: Optional[float] = None
+    retention: Optional[float] = None
     total: float
     cae: Optional[str] = None
-    observaciones: Optional[str] = None
+    note: Optional[str] = None
+    filename: Optional[str] = None
+    items: List[Item]
 
 
 def optimizar_imagen(ruta_entrada):
@@ -111,47 +108,12 @@ def extraer_datos_factura(ruta_imagen):
     with open(ruta_imagen, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
-    prompt = """Extrae los datos de esta factura argentina en formato JSON.
+    prompt = """Extrae los datos de esta factura argentina.
 
-IMPORTANTE SOBRE NÚMEROS:
-- En Argentina, el PUNTO (.) se usa como separador de miles: 1.000 = mil
-- La COMA (,) se usa como separador de decimales: 1.234,56 = mil doscientos treinta y cuatro con cincuenta y seis
-- En el JSON, usá punto (.) para decimales según estándar JSON
-- Ejemplos:
-  * Si ves "1.234,56" → devolvé 1234.56
-  * Si ves "10.000" → devolvé 10000
-  * Si ves "999,50" → devolvé 999.50
+Formato numérico argentino: el punto (.) separa miles y la coma (,) separa decimales.
+Convertí al estándar JSON (punto decimal): "1.234,56"→1234.56 | "10.000"→10000 | "999,50"→999.50
 
-Formato requerido:
-{
-  "tipo_comprobante": "Factura A/B/C",
-  "punto_venta": "",
-  "numero": "",
-  "fecha": "DD/MM/AAAA",
-  "proveedor": {
-    "nombre": "",
-    "cuit": "XX-XXXXXXXX-X",
-    "direccion": ""
-  },
-  "items": [
-    {
-      "codigo": "",
-      "descripcion": "",
-      "cantidad": 0,
-      "precio_unitario": 0,
-      "subtotal": 0
-    }
-  ],
-  "subtotal": 0,
-  "iva": 0,
-  "percepcion": 0,
-  "retencion": 0,
-  "total": 0,
-  "cae": "",
-  "observaciones": ""
-}
-
-IMPORTANTE: Responde únicamente con el JSON solicitado. Solo extrae datos que puedas leer claramente. Si algo no es legible, usa null. No expliques ni justifiques. No infieras valores."""
+Solo extrae lo que sea claramente legible. Usá null para campos ilegibles o ausentes. No infieras valores."""
 
     response = client.responses.parse(
         model="gpt-5.4-nano",
@@ -181,24 +143,22 @@ def validar_datos(datos):
     errores = []
     advertencias = []
 
-    if not datos.numero:
+    if not datos.number:
         errores.append("❌ Falta número de factura")
 
-    if not datos.proveedor.cuit:
+    if not datos.cuit:
         errores.append("❌ Falta CUIT del proveedor")
-    elif not _CUIT_RE.match(datos.proveedor.cuit):
-        advertencias.append(f"⚠️  CUIT con formato inválido: {datos.proveedor.cuit}")
+    elif not _CUIT_RE.match(datos.cuit):
+        advertencias.append(f"⚠️  CUIT con formato inválido: {datos.cuit}")
 
     if datos.total is None:
         errores.append("❌ Falta total")
 
     if datos.items:
-        subtotal_calculado = sum(item.subtotal for item in datos.items)
-        subtotal_declarado = datos.subtotal
-
-        if abs(subtotal_calculado - subtotal_declarado) > 0.01:
+        subtotal_calculado = sum(item.qty * item.price for item in datos.items)
+        if abs(subtotal_calculado - datos.subtotal) > 0.01:
             advertencias.append(
-                f"⚠️  Desigualdad: items=${subtotal_calculado:.2f} vs factura=${subtotal_declarado:.2f}"
+                f"⚠️  Desigualdad: items=${subtotal_calculado:.2f} vs factura=${datos.subtotal:.2f}"
             )
 
     return errores, advertencias
@@ -213,6 +173,7 @@ def procesar_factura(ruta_factura, carpeta_salida, nombre_override=None):
     try:
         ruta_opt = optimizar_imagen(ruta_factura)
         datos = extraer_datos_factura(ruta_opt)
+        datos.filename = nombre
         errores, advertencias = validar_datos(datos)
 
         resultado = {
